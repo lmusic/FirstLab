@@ -1,4 +1,4 @@
-from http.server import BaseHTTPRequestHandler, HTTPServer, SimpleHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, HTTPServer
 import os
 import json
 import shutil
@@ -13,13 +13,59 @@ class MyHttpRequestHandler(BaseHTTPRequestHandler):
         if(name != 'MainFolder'):
             shutil.rmtree(os.path.join(dir, name))
 
+    def deleteFile(self, dir):
+        os.remove(dir)
+
+    def getPathToFile(self, dir, name):
+        path = os.path.join(dir, name)
+        if os.path.isfile(path):
+            return os.path.normpath(path)
+        else:
+            return None
+
+    def getPathToDir(self, dir, name):
+        path = os.path.join(dir, name)
+        if os.path.isdir(path):
+            return os.path.normpath(path)
+        else:
+            return None
+
+    def makeArchive(self, path, name):
+        shutil.make_archive(path, 'zip', path)
+
+    def getNameOfFile(self, path):
+        return path.split('\\')[-1]
+
     def processParamsGet(self, params, dir):
             type = params[0].split("=")[0]
             name = params[0].split("=")[1]
+            mtype = self.guess_type(dir)
             if type == "create":
                 self.createFolder(dir, name)
+                self.processNonParamsGet(dir, mtype)
             if type == "delete":
-                self.deleteFolder(dir, name)
+                path = self.getPathToFile(dir, name)
+                if path:
+                    self.deleteFile(path)
+                else:
+                    self.deleteFolder(dir, name)
+                self.processNonParamsGet(dir, mtype)
+            if type == "download":
+                path = self.getPathToDir(dir, name)
+                if path:
+                    self.makeArchive(path, name)
+                    json_data = open(path + '.zip', 'rb').read()
+                    os.remove(path + '.zip')
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/zip')
+                    if ((mtype != 'text/css') & (mtype != 'text/javascript')) | (self.containsSysFile(dir) == False):
+                        self.send_header('Content-Disposition', 'attachment; filename='+name+'.zip')
+                    self.end_headers()
+                    self.wfile.write(json_data)
+                else:
+                    self.processNonParamsGet(self.getPathToFile(dir, name), self.guess_type(dir))
+
+
 
     def containsSysFile(self, dir):
         arr = dir.split('/')
@@ -27,7 +73,7 @@ class MyHttpRequestHandler(BaseHTTPRequestHandler):
             if(str == 'MainFolder'):
                 return True
         return False
-            
+     
     def processNonParamsGet(self, dir, mtype):
         if os.path.isdir(dir):
             list = os.listdir(dir)
@@ -41,7 +87,7 @@ class MyHttpRequestHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header('Content-Type', mtype)
             if ((mtype != 'text/css') & (mtype != 'text/javascript')) | (self.containsSysFile(dir) == False):
-                self.send_header('Content-Disposition', 'attachment')
+                self.send_header('Content-Disposition', 'attachment; filename='+self.getNameOfFile(path))
             self.end_headers()
             self.wfile.write(json_data)
 
@@ -59,6 +105,7 @@ class MyHttpRequestHandler(BaseHTTPRequestHandler):
         return type[0]
 
     def do_GET(self):
+
         SERV_DIR = "C:/Users/lmusic/Desktop/MyServFolder"
         json_data = ""
         try:
@@ -71,13 +118,14 @@ class MyHttpRequestHandler(BaseHTTPRequestHandler):
         for item in list:
             if item!="":
                 dir = os.path.join(dir, item)
-        if params:
-            self.processParamsGet(params, dir)
-        newtype = self.guess_type(dir)
         if(dir == SERV_DIR):
-            self.openHtml(dir)
+           self.openHtml(dir)
         else:
-            self.processNonParamsGet(dir, newtype)
+            if params:
+                self.processParamsGet(params, dir)
+            else:
+               newtype = self.guess_type(dir)
+               self.processNonParamsGet(dir, newtype)
 
 
 server_adress = ("", 8000)
